@@ -1,5 +1,8 @@
 export const defaultBlue = "#175e7a";
 export const defaultNoteTheme = "#fcf7ac";
+export const noteWidth = 180;
+export const noteRadius = 3;
+export const noteFold = 24;
 export const darkBgTheme = "#16161A";
 export const stringColor = "text-orange-500";
 export const intColor = "text-yellow-500";
@@ -56,7 +59,6 @@ export const Action = {
   MOVE: 1,
   DELETE: 2,
   EDIT: 3,
-  PAN: 4,
 };
 
 export const State = {

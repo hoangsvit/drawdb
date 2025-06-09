@@ -38,6 +38,7 @@ export const tableSchema = {
       },
     },
     comment: { type: "string" },
+    locked: { type: "boolean" },
     indices: {
       type: "array",
       items: {
@@ -67,6 +68,7 @@ export const areaSchema = {
     y: { type: "number" },
     width: { type: "number" },
     height: { type: "number" },
+    locked: { type: "boolean" },
     color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
   },
   required: ["id", "name", "x", "y", "width", "height", "color"],
@@ -82,6 +84,7 @@ export const noteSchema = {
     content: { type: "string" },
     color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
     height: { type: "number" },
+    locked: { type: "boolean" },
   },
   required: ["id", "x", "y", "title", "content", "color", "height"],
 };

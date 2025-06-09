@@ -42,6 +42,7 @@ import {
   SIDESHEET,
   DB,
   IMPORT_FROM,
+  noteWidth,
 } from "../../data/constants";
 import jsPDF from "jspdf";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -79,6 +80,7 @@ import { socials } from "../../data/socials";
 import { toDBML } from "../../utils/exportAs/dbml";
 import { exportSavedData } from "../../utils/exportSavedData";
 import { nanoid } from "nanoid";
+import { getTableHeight } from "../../utils/utils";
 
 export default function ControlPanel({
   diagramId,
@@ -295,12 +297,6 @@ export default function ControlPanel({
         }
       }
       setRedoStack((prev) => [...prev, a]);
-    } else if (a.action === Action.PAN) {
-      setTransform((prev) => ({
-        ...prev,
-        pan: a.undo,
-      }));
-      setRedoStack((prev) => [...prev, a]);
     }
   };
 
@@ -475,12 +471,6 @@ export default function ControlPanel({
         }
       }
       setUndoStack((prev) => [...prev, a]);
-    } else if (a.action === Action.PAN) {
-      setTransform((prev) => ({
-        ...prev,
-        pan: a.redo,
-      }));
-      setUndoStack((prev) => [...prev, a]);
     }
   };
 
@@ -516,19 +506,52 @@ export default function ControlPanel({
   const resetView = () =>
     setTransform((prev) => ({ ...prev, zoom: 1, pan: { x: 0, y: 0 } }));
   const fitWindow = () => {
-    const diagram = document.getElementById("diagram").getBoundingClientRect();
     const canvas = document.getElementById("canvas").getBoundingClientRect();
 
-    const scaleX = canvas.width / diagram.width;
-    const scaleY = canvas.height / diagram.height;
-    const scale = Math.min(scaleX, scaleY);
-    const translateX = canvas.left;
-    const translateY = canvas.top;
+    const minMaxXY = {
+      minX: Infinity,
+      minY: Infinity,
+      maxX: -Infinity,
+      maxY: -Infinity,
+    };
+
+    tables.forEach((table) => {
+      minMaxXY.minX = Math.min(minMaxXY.minX, table.x);
+      minMaxXY.minY = Math.min(minMaxXY.minY, table.y);
+      minMaxXY.maxX = Math.max(minMaxXY.maxX, table.x + settings.tableWidth);
+      minMaxXY.maxY = Math.max(minMaxXY.maxY, table.y + getTableHeight(table));
+    });
+
+    areas.forEach((area) => {
+      minMaxXY.minX = Math.min(minMaxXY.minX, area.x);
+      minMaxXY.minY = Math.min(minMaxXY.minY, area.y);
+      minMaxXY.maxX = Math.max(minMaxXY.maxX, area.x + area.width);
+      minMaxXY.maxY = Math.max(minMaxXY.maxY, area.y + area.height);
+    });
+
+    notes.forEach((note) => {
+      minMaxXY.minX = Math.min(minMaxXY.minX, note.x);
+      minMaxXY.minY = Math.min(minMaxXY.minY, note.y);
+      minMaxXY.maxX = Math.max(minMaxXY.maxX, note.x + noteWidth);
+      minMaxXY.maxY = Math.max(minMaxXY.maxY, note.y + note.height);
+    });
+
+    const padding = 10;
+    const width = minMaxXY.maxX - minMaxXY.minX + padding;
+    const height = minMaxXY.maxY - minMaxXY.minY + padding;
+
+    const scaleX = canvas.width / width;
+    const scaleY = canvas.height / height;
+    // Making sure the scale is a multiple of 0.05
+    const scale = Math.floor(Math.min(scaleX, scaleY) * 20) / 20;
+
+    const centerX = (minMaxXY.minX + minMaxXY.maxX) / 2;
+    const centerY = (minMaxXY.minY + minMaxXY.maxY) / 2;
 
     setTransform((prev) => ({
       ...prev,
-      zoom: scale - 0.01,
-      pan: { x: translateX, y: translateY },
+      zoom: scale,
+      pan: { x: centerX, y: centerY },
     }));
   };
   const edit = () => {
@@ -609,7 +632,7 @@ export default function ControlPanel({
           ...copiedTable,
           x: copiedTable.x + 20,
           y: copiedTable.y + 20,
-          id: tables.length,
+          id: nanoid(),
         });
         break;
       }
@@ -670,7 +693,7 @@ export default function ControlPanel({
           ...obj,
           x: obj.x + 20,
           y: obj.y + 20,
-          id: tables.length,
+          id: nanoid(),
         });
       } else if (v.validate(obj, areaSchema).valid) {
         addArea({
@@ -692,6 +715,9 @@ export default function ControlPanel({
   const cut = () => {
     copy();
     del();
+  };
+  const toggleDBMLEditor = () => {
+    setLayout((prev) => ({ ...prev, dbmlEditor: !prev.dbmlEditor }));
   };
   const save = () => setSaveState(State.SAVING);
   const open = () => setModal(MODAL.OPEN);
@@ -1218,6 +1244,15 @@ export default function ControlPanel({
         function: () =>
           setLayout((prev) => ({ ...prev, issues: !prev.issues })),
       },
+      dbml_view: {
+        state: layout.dbmlEditor ? (
+          <i className="bi bi-toggle-on" />
+        ) : (
+          <i className="bi bi-toggle-off" />
+        ),
+        function: toggleDBMLEditor,
+        shortcut: "Alt+E",
+      },
       strict_mode: {
         state: settings.strictMode ? (
           <i className="bi bi-toggle-off" />
@@ -1249,7 +1284,7 @@ export default function ControlPanel({
       },
       reset_view: {
         function: resetView,
-        shortcut: "Ctrl+R",
+        shortcut: "Enter/Return",
       },
       show_datatype: {
         state: settings.showDataTypes ? (
@@ -1441,11 +1476,12 @@ export default function ControlPanel({
     preventDefault: true,
   });
   useHotkeys("mod+alt+c", copyAsImage, { preventDefault: true });
-  useHotkeys("mod+r", resetView, { preventDefault: true });
+  useHotkeys("enter", resetView, { preventDefault: true });
   useHotkeys("mod+h", () => window.open(socials.docs, "_blank"), {
     preventDefault: true,
   });
   useHotkeys("mod+alt+w", fitWindow, { preventDefault: true });
+  useHotkeys("alt+e", toggleDBMLEditor, { preventDefault: true });
 
   return (
     <>
@@ -1757,7 +1793,7 @@ export default function ControlPanel({
                       direction: isRtl(i18n.language) ? "rtl" : "ltr",
                     }}
                     render={
-                      <Dropdown.Menu>
+                      <Dropdown.Menu className="menu max-h-[calc(100vh-80px)] overflow-auto">
                         {Object.keys(menu[category]).map((item, index) => {
                           if (menu[category][item].children) {
                             return (

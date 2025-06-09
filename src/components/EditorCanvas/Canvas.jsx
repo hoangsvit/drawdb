@@ -23,11 +23,13 @@ import {
   useAreas,
   useNotes,
   useLayout,
+  useSaveState,
 } from "../../hooks";
 import { useTranslation } from "react-i18next";
 import { useEventListener } from "usehooks-ts";
 import { areFieldsCompatible } from "../../utils/utils";
 import { getRectFromEndpoints, isInsideRect } from "../../utils/rect";
+import { noteWidth, State } from "../../data/constants";
 
 export default function Canvas() {
   const { t } = useTranslation();
@@ -41,6 +43,7 @@ export default function Canvas() {
 
   const { tables, updateTable, relationships, addRelationship, database } =
     useDiagram();
+  const { setSaveState } = useSaveState();
   const { areas, updateArea } = useAreas();
   const { notes, updateNote } = useNotes();
   const { layout } = useLayout();
@@ -104,6 +107,8 @@ export default function Canvas() {
     const elements = [];
 
     tables.forEach((table) => {
+      if (table.locked) return;
+
       if (
         isInsideRect(
           {
@@ -124,6 +129,8 @@ export default function Canvas() {
     });
 
     areas.forEach((area) => {
+      if (area.locked) return;
+
       if (
         isInsideRect(
           {
@@ -143,12 +150,14 @@ export default function Canvas() {
     });
 
     notes.forEach((note) => {
+      if (note.locked) return;
+
       if (
         isInsideRect(
           {
             x: note.x,
             y: note.y,
-            width: 180,
+            width: noteWidth,
             height: note.height,
           },
           rect,
@@ -319,6 +328,9 @@ export default function Canvas() {
         },
       }));
     } else if (dragging.element === ObjectType.TABLE && dragging.id !== null) {
+      const table = tables.find((t) => t.id === dragging.id);
+      if (table.locked) return;
+
       updateTable(dragging.id, {
         x: pointer.spaces.diagram.x + grabOffset.x,
         y: pointer.spaces.diagram.y + grabOffset.y,
@@ -328,11 +340,17 @@ export default function Canvas() {
       dragging.id !== null &&
       areaResize.id === -1
     ) {
+      const area = areas.find((t) => t.id === dragging.id);
+      if (area.locked) return;
+
       updateArea(dragging.id, {
         x: pointer.spaces.diagram.x + grabOffset.x,
         y: pointer.spaces.diagram.y + grabOffset.y,
       });
     } else if (dragging.element === ObjectType.NOTE && dragging.id !== null) {
+      const note = notes.find((t) => t.id === dragging.id);
+      if (note.locked) return;
+
       updateNote(dragging.id, {
         x: pointer.spaces.diagram.x + grabOffset.x,
         y: pointer.spaces.diagram.y + grabOffset.y,
@@ -524,19 +542,7 @@ export default function Canvas() {
     }
 
     if (panning.isPanning && didPan()) {
-      setUndoStack((prev) => [
-        ...prev,
-        {
-          action: Action.PAN,
-          undo: { x: panning.panStart.x, y: panning.panStart.y },
-          redo: transform.pan,
-          message: t("move_element", {
-            coords: `(${transform?.pan.x}, ${transform?.pan.y})`,
-            name: "diagram",
-          }),
-        },
-      ]);
-      setRedoStack([]);
+      setSaveState(State.SAVING);
       setSelectedElement((prev) => ({
         ...prev,
         element: ObjectType.NONE,

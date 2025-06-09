@@ -12,6 +12,8 @@ import {
   IconMinus,
   IconDeleteStroked,
   IconKeyStroked,
+  IconLock,
+  IconUnlock,
 } from "@douyinfe/semi-icons";
 import { Popover, Tag, Button, SideSheet } from "@douyinfe/semi-ui";
 import { useLayout, useSettings, useDiagram, useSelect } from "../../hooks";
@@ -20,6 +22,7 @@ import { useTranslation } from "react-i18next";
 import { dbToTypes } from "../../data/datatypes";
 import { isRtl } from "../../i18n/utils/rtl";
 import i18n from "../../i18n/i18n";
+import { getTableHeight } from "../../utils/utils";
 
 export default function Table(props) {
   const [hoveredField, setHoveredField] = useState(null);
@@ -32,7 +35,7 @@ export default function Table(props) {
     setLinkingLine,
   } = props;
   const { layout } = useLayout();
-  const { deleteTable, deleteField } = useDiagram();
+  const { deleteTable, deleteField, updateTable } = useDiagram();
   const { settings } = useSettings();
   const { t } = useTranslation();
   const { selectedElement, setSelectedElement, bulkSelectedElements } =
@@ -43,8 +46,7 @@ export default function Table(props) {
     [settings.mode],
   );
 
-  const height =
-    tableData.fields.length * tableFieldHeight + tableHeaderHeight + 7;
+  const height = getTableHeight(tableData);
 
   const isSelected = useMemo(() => {
     return (
@@ -55,6 +57,9 @@ export default function Table(props) {
       )
     );
   }, [selectedElement, tableData, bulkSelectedElements]);
+
+  const lockUnlockTable = () =>
+    updateTable(tableData.id, { locked: !tableData.locked });
 
   const openEditor = () => {
     if (!layout.sidebar) {
@@ -109,18 +114,26 @@ export default function Table(props) {
               settings.mode === "light" ? "bg-zinc-200" : "bg-zinc-900"
             }`}
           >
-            <div className=" px-3 overflow-hidden text-ellipsis whitespace-nowrap">
+            <div className="px-3 overflow-hidden text-ellipsis whitespace-nowrap">
               {tableData.name}
             </div>
             <div className="hidden group-hover:block">
-              <div className="flex justify-end items-center mx-2">
+              <div className="flex justify-end items-center mx-2 space-x-1.5">
+                <Button
+                  icon={tableData.locked ? <IconLock /> : <IconUnlock />}
+                  size="small"
+                  theme="solid"
+                  style={{
+                    backgroundColor: "#2f68adb3",
+                  }}
+                  onClick={lockUnlockTable}
+                />
                 <Button
                   icon={<IconEdit />}
                   size="small"
                   theme="solid"
                   style={{
                     backgroundColor: "#2f68adb3",
-                    marginRight: "6px",
                   }}
                   onClick={openEditor}
                 />
