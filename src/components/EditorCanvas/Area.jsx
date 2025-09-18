@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { Button, Popover, Input, ColorPicker } from "@douyinfe/semi-ui";
+import { Button, Popover, Input } from "@douyinfe/semi-ui";
+import ColorPicker from "../EditorSidePanel/ColorPicker";
 import {
   IconEdit,
   IconDeleteStroked,
@@ -8,7 +9,6 @@ import {
 } from "@douyinfe/semi-icons";
 import { Tab, Action, ObjectType, State } from "../../data/constants";
 import {
-  useCanvas,
   useLayout,
   useSettings,
   useUndoRedo,
@@ -23,36 +23,72 @@ export default function Area({
   data,
   onPointerDown,
   setResize,
-  setInitCoords,
+  setInitDimensions,
 }) {
   const ref = useRef(null);
   const isHovered = useHover(ref);
-  const {
-    pointer: {
-      spaces: { diagram: pointer },
-    },
-  } = useCanvas();
   const { layout } = useLayout();
   const { settings } = useSettings();
   const { setSaveState } = useSaveState();
   const { updateArea } = useAreas();
-  const { selectedElement, setSelectedElement, bulkSelectedElements } =
-    useSelect();
+  const {
+    selectedElement,
+    setSelectedElement,
+    bulkSelectedElements,
+    setBulkSelectedElements,
+  } = useSelect();
 
   const handleResize = (e, dir) => {
     setResize({ id: data.id, dir: dir });
-    setInitCoords({
+    setInitDimensions({
       x: data.x,
       y: data.y,
       width: data.width,
       height: data.height,
-      pointerX: pointer.x,
-      pointerY: pointer.y,
     });
   };
 
-  const lockUnlockArea = () => {
-    updateArea(data.id, { locked: !data.locked });
+  const lockUnlockArea = (e) => {
+    const locking = !data.locked;
+    updateArea(data.id, { locked: locking });
+
+    const lockArea = () => {
+      setSelectedElement({
+        ...selectedElement,
+        element: ObjectType.NONE,
+        id: -1,
+        open: false,
+      });
+      setBulkSelectedElements((prev) =>
+        prev.filter((el) => el.id !== data.id || el.type !== ObjectType.AREA),
+      );
+    };
+
+    const unlockArea = () => {
+      const elementInBulk = {
+        id: data.id,
+        type: ObjectType.AREA,
+        initialCoords: { x: data.x, y: data.y },
+        currentCoords: { x: data.x, y: data.y },
+      };
+      if (e.ctrlKey || e.metaKey) {
+        setBulkSelectedElements((prev) => [...prev, elementInBulk]);
+      } else {
+        setBulkSelectedElements([elementInBulk]);
+      }
+      setSelectedElement((prev) => ({
+        ...prev,
+        element: ObjectType.AREA,
+        id: data.id,
+        open: false,
+      }));
+    };
+
+    if (locking) {
+      lockArea();
+    } else {
+      unlockArea();
+    }
   };
 
   const edit = () => {
@@ -127,6 +163,7 @@ export default function Area({
                 : "border-slate-400 opacity-100"
           }`}
           style={{ backgroundColor: `${data.color}66` }}
+          onDoubleClick={edit}
         >
           <div className="flex justify-between gap-1 w-full">
             <div className="text-color select-none overflow-hidden text-ellipsis">
@@ -142,6 +179,7 @@ export default function Area({
                     backgroundColor: "#2F68ADB3",
                   }}
                   onClick={lockUnlockArea}
+                  disabled={layout.readOnly}
                 />
                 <Popover
                   visible={areaIsOpen() && !layout.sidebar}
@@ -220,6 +258,43 @@ function EditPopoverContent({ data }) {
   const { updateArea, deleteArea } = useAreas();
   const { setUndoStack, setRedoStack } = useUndoRedo();
   const { t } = useTranslation();
+  const { layout } = useLayout();
+  const initialColorRef = useRef(data.color);
+
+  const handleColorPick = (color) => {
+    setUndoStack((prev) => {
+      let undoColor = initialColorRef.current;
+      const lastColorChange = prev.findLast(
+        (e) =>
+          e.element === ObjectType.AREA &&
+          e.aid === data.id &&
+          e.action === Action.EDIT &&
+          e.redo?.color,
+      );
+      if (lastColorChange) {
+        undoColor = lastColorChange.redo.color;
+      }
+
+      if (color === undoColor) return prev;
+
+      const newStack = [
+        ...prev,
+        {
+          action: Action.EDIT,
+          element: ObjectType.AREA,
+          aid: data.id,
+          undo: { color: undoColor },
+          redo: { color: color },
+          message: t("edit_area", {
+            areaName: data.name,
+            extra: "[color]",
+          }),
+        },
+      ];
+      return newStack;
+    });
+    setRedoStack([]);
+  };
 
   return (
     <div className="popover-theme">
@@ -229,6 +304,7 @@ function EditPopoverContent({ data }) {
           value={data.name}
           placeholder={t("name")}
           className="me-2"
+          readonly={layout.readOnly}
           onChange={(value) => updateArea(data.id, { name: value })}
           onFocus={(e) => setEditField({ name: e.target.value })}
           onBlur={(e) => {
@@ -251,26 +327,11 @@ function EditPopoverContent({ data }) {
           }}
         />
         <ColorPicker
-          onChange={({ hex: color }) => {
-            setUndoStack((prev) => [
-              ...prev,
-              {
-                action: Action.EDIT,
-                element: ObjectType.AREA,
-                aid: data.id,
-                undo: { color: data.color },
-                redo: { color },
-                message: t("edit_area", {
-                  areaName: data.name,
-                  extra: "[color]",
-                }),
-              },
-            ]);
-            setRedoStack([]);
-            updateArea(data.id, { color });
-          }}
           usePopover={true}
-          value={ColorPicker.colorStringToValue(data.color)}
+          readOnly={layout.readOnly}
+          value={data.color}
+          onChange={(color) => updateArea(data.id, { color })}
+          onColorPick={(color) => handleColorPick(color)}
         />
       </div>
       <div className="flex">
@@ -279,6 +340,7 @@ function EditPopoverContent({ data }) {
           type="danger"
           block
           onClick={() => deleteArea(data.id, true)}
+          disabled={layout.readOnly}
         >
           {t("delete")}
         </Button>

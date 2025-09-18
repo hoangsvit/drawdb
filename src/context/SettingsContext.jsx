@@ -5,10 +5,10 @@ const defaultSettings = {
   strictMode: false,
   showFieldSummary: true,
   showGrid: true,
+  snapToGrid: false,
   showDataTypes: true,
   mode: "light",
   autosave: true,
-  panning: true,
   showCardinality: true,
   showRelationshipLabels: true,
   tableWidth: tableWidth,
@@ -26,6 +26,10 @@ export default function SettingsContextProvider({ children }) {
       setSettings(JSON.parse(settings));
     }
   }, []);
+
+  useEffect(() => {
+    document.body.setAttribute("theme-mode", settings.mode);
+  }, [settings.mode]);
 
   useEffect(() => {
     localStorage.setItem("settings", JSON.stringify(settings));

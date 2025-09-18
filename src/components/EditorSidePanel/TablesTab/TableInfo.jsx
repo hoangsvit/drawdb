@@ -1,15 +1,21 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Collapse,
   Input,
   TextArea,
   Button,
   Card,
-  ColorPicker,
+  Select,
 } from "@douyinfe/semi-ui";
+import ColorPicker from "../ColorPicker";
 import { IconDeleteStroked } from "@douyinfe/semi-icons";
-import { useDiagram, useSaveState, useUndoRedo } from "../../../hooks";
-import { Action, ObjectType, State } from "../../../data/constants";
+import {
+  useDiagram,
+  useLayout,
+  useSaveState,
+  useUndoRedo,
+} from "../../../hooks";
+import { Action, ObjectType, State, DB } from "../../../data/constants";
 import TableField from "./TableField";
 import IndexDetails from "./IndexDetails";
 import { useTranslation } from "react-i18next";
@@ -17,22 +23,72 @@ import { SortableList } from "../../SortableList/SortableList";
 import { nanoid } from "nanoid";
 
 export default function TableInfo({ data }) {
+  const { tables, database } = useDiagram();
   const { t } = useTranslation();
   const [indexActiveKey, setIndexActiveKey] = useState("");
+  const { layout } = useLayout();
   const { deleteTable, updateTable, setTables } = useDiagram();
   const { setUndoStack, setRedoStack } = useUndoRedo();
   const { setSaveState } = useSaveState();
   const [editField, setEditField] = useState({});
+  const initialColorRef = useRef(data.color);
+
+  const handleColorPick = (color) => {
+    setUndoStack((prev) => {
+      let undoColor = initialColorRef.current;
+      const lastColorChange = prev.findLast(
+        (e) =>
+          e.element === ObjectType.TABLE &&
+          e.tid === data.id &&
+          e.action === Action.EDIT &&
+          e.redo?.color,
+      );
+      if (lastColorChange) {
+        undoColor = lastColorChange.redo.color;
+      }
+
+      if (color === undoColor) return prev;
+
+      const newStack = [
+        ...prev,
+        {
+          action: Action.EDIT,
+          element: ObjectType.TABLE,
+          component: "self",
+          tid: data.id,
+          undo: { color: undoColor },
+          redo: { color: color },
+          message: t("edit_table", {
+            tableName: data.name,
+            extra: "[color]",
+          }),
+        },
+      ];
+      return newStack;
+    });
+    setRedoStack([]);
+  };
+
+  const inheritedFieldNames =
+    Array.isArray(data.inherits) && data.inherits.length > 0
+      ? data.inherits
+          .map((parentName) => {
+            const parent = tables.find((t) => t.name === parentName);
+            return parent ? parent.fields.map((f) => f.name) : [];
+          })
+          .flat()
+      : [];
 
   return (
     <div>
       <div className="flex items-center mb-2.5">
-        <div className="text-md font-semibold break-keep">{t("name")}: </div>
+        <div className="text-md font-semibold break-keep">{t("name")}:</div>
         <Input
           value={data.name}
           validateStatus={data.name.trim() === "" ? "error" : "default"}
           placeholder={t("name")}
           className="ms-2"
+          readonly={layout.readOnly}
           onChange={(value) => updateTable(data.id, { name: value })}
           onFocus={(e) => setEditField({ name: e.target.value })}
           onBlur={(e) => {
@@ -56,21 +112,66 @@ export default function TableInfo({ data }) {
           }}
         />
       </div>
+
       <SortableList
         items={data.fields}
         keyPrefix={`table-${data.id}`}
-        onChange={(newFields) => {
-          setTables((prev) => {
-            return prev.map((t) =>
+        onChange={(newFields) =>
+          setTables((prev) =>
+            prev.map((t) =>
               t.id === data.id ? { ...t, fields: newFields } : t,
-            );
-          });
-        }}
+            ),
+          )
+        }
         afterChange={() => setSaveState(State.SAVING)}
         renderItem={(item, i) => (
-          <TableField data={item} tid={data.id} index={i} />
+          <TableField
+            data={item}
+            tid={data.id}
+            index={i}
+            inherited={inheritedFieldNames.includes(item.name)}
+          />
         )}
       />
+
+      {database === DB.POSTGRES && (
+        <div className="mb-2">
+          <div className="text-md font-semibold break-keep">
+            {t("inherits")}:
+          </div>
+          <Select
+            multiple
+            value={data.inherits || []}
+            optionList={tables
+              .filter((t) => t.id !== data.id)
+              .map((t) => ({ label: t.name, value: t.name }))}
+            onChange={(value) => {
+              if (layout.readOnly) return;
+
+              setUndoStack((prev) => [
+                ...prev,
+                {
+                  action: Action.EDIT,
+                  element: ObjectType.TABLE,
+                  component: "self",
+                  tid: data.id,
+                  undo: { inherits: data.inherits },
+                  redo: { inherits: value },
+                  message: t("edit_table", {
+                    tableName: data.name,
+                    extra: "[inherits]",
+                  }),
+                },
+              ]);
+              setRedoStack([]);
+              updateTable(data.id, { inherits: value });
+            }}
+            placeholder={t("inherits")}
+            className="w-full"
+          />
+        </div>
+      )}
+
       {data.indices.length > 0 && (
         <Card
           bodyStyle={{ padding: "4px" }}
@@ -101,6 +202,7 @@ export default function TableInfo({ data }) {
           </Collapse>
         </Card>
       )}
+
       <Card
         bodyStyle={{ padding: "4px" }}
         style={{ marginTop: "12px", marginBottom: "12px" }}
@@ -111,6 +213,7 @@ export default function TableInfo({ data }) {
             <TextArea
               field="comment"
               value={data.comment}
+              readonly={layout.readOnly}
               autosize
               placeholder={t("comment")}
               rows={1}
@@ -141,33 +244,19 @@ export default function TableInfo({ data }) {
           </Collapse.Panel>
         </Collapse>
       </Card>
+
       <div className="flex justify-between items-center gap-1 mb-2">
         <ColorPicker
-          onChange={({ hex: color }) => {
-            setUndoStack((prev) => [
-              ...prev,
-              {
-                action: Action.EDIT,
-                element: ObjectType.TABLE,
-                component: "self",
-                tid: data.id,
-                undo: { color: data.color },
-                redo: { color },
-                message: t("edit_table", {
-                  tableName: data.name,
-                  extra: "[color]",
-                }),
-              },
-            ]);
-            setRedoStack([]);
-            updateTable(data.id, { color });
-          }}
           usePopover={true}
-          value={ColorPicker.colorStringToValue(data.color)}
+          readOnly={layout.readOnly}
+          value={data.color}
+          onChange={(color) => updateTable(data.id, { color })}
+          onColorPick={(color) => handleColorPick(color)}
         />
         <div className="flex gap-1">
           <Button
             block
+            disabled={layout.readOnly}
             onClick={() => {
               setIndexActiveKey("1");
               setUndoStack((prev) => [
@@ -200,6 +289,8 @@ export default function TableInfo({ data }) {
             {t("add_index")}
           </Button>
           <Button
+            block
+            disabled={layout.readOnly}
             onClick={() => {
               const id = nanoid();
               setUndoStack((prev) => [
@@ -235,13 +326,13 @@ export default function TableInfo({ data }) {
                 ],
               });
             }}
-            block
           >
             {t("add_field")}
           </Button>
           <Button
-            icon={<IconDeleteStroked />}
             type="danger"
+            disabled={layout.readOnly}
+            icon={<IconDeleteStroked />}
             onClick={() => deleteTable(data.id)}
           />
         </div>

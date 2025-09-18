@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { Action, ObjectType, Tab, State } from "../../data/constants";
-import { Input, Button, Popover, ColorPicker } from "@douyinfe/semi-ui";
+import { Input, Button, Popover } from "@douyinfe/semi-ui";
+import ColorPicker from "../EditorSidePanel/ColorPicker";
 import {
   IconEdit,
   IconDeleteStroked,
@@ -25,8 +26,48 @@ export default function Note({ data, onPointerDown }) {
   const { setSaveState } = useSaveState();
   const { updateNote, deleteNote } = useNotes();
   const { setUndoStack, setRedoStack } = useUndoRedo();
-  const { selectedElement, setSelectedElement, bulkSelectedElements } =
-    useSelect();
+  const {
+    selectedElement,
+    setSelectedElement,
+    bulkSelectedElements,
+    setBulkSelectedElements,
+  } = useSelect();
+  const initialColorRef = useRef(data.color);
+
+  const handleColorPick = (color) => {
+    setUndoStack((prev) => {
+      let undoColor = initialColorRef.current;
+      const lastColorChange = prev.findLast(
+        (e) =>
+          e.element === ObjectType.NOTE &&
+          e.nid === data.id &&
+          e.action === Action.EDIT &&
+          e.redo?.color,
+      );
+      if (lastColorChange) {
+        undoColor = lastColorChange.redo.color;
+      }
+
+      if (color === undoColor) return prev;
+
+      const newStack = [
+        ...prev,
+        {
+          action: Action.EDIT,
+          element: ObjectType.NOTE,
+          nid: data.id,
+          undo: { color: undoColor },
+          redo: { color: color },
+          message: t("edit_note", {
+            noteTitle: data.title,
+            extra: "[color]",
+          }),
+        },
+      ];
+      return newStack;
+    });
+    setRedoStack([]);
+  };
 
   const handleChange = (e) => {
     const textarea = document.getElementById(`note_${data.id}`);
@@ -59,8 +100,47 @@ export default function Note({ data, onPointerDown }) {
     setRedoStack([]);
   };
 
-  const lockUnlockNote = () => {
-    updateNote(data.id, { locked: !data.locked });
+  const lockUnlockNote = (e) => {
+    const locking = !data.locked;
+    updateNote(data.id, { locked: locking });
+
+    const lockNote = () => {
+      setSelectedElement({
+        ...selectedElement,
+        element: ObjectType.NONE,
+        id: -1,
+        open: false,
+      });
+      setBulkSelectedElements((prev) =>
+        prev.filter((el) => el.id !== data.id || el.type !== ObjectType.NOTE),
+      );
+    };
+
+    const unlockNote = () => {
+      const elementInBulk = {
+        id: data.id,
+        type: ObjectType.NOTE,
+        initialCoords: { x: data.x, y: data.y },
+        currentCoords: { x: data.x, y: data.y },
+      };
+      if (e.ctrlKey || e.metaKey) {
+        setBulkSelectedElements((prev) => [...prev, elementInBulk]);
+      } else {
+        setBulkSelectedElements([elementInBulk]);
+      }
+      setSelectedElement((prev) => ({
+        ...prev,
+        element: ObjectType.NOTE,
+        id: data.id,
+        open: false,
+      }));
+    };
+
+    if (locking) {
+      lockNote();
+    } else {
+      unlockNote();
+    }
   };
 
   const edit = () => {
@@ -98,6 +178,7 @@ export default function Note({ data, onPointerDown }) {
         // https://stackoverflow.com/a/70976017/1137077
         e.target.releasePointerCapture(e.pointerId);
       }}
+      onDoubleClick={edit}
     >
       <path
         d={`M${data.x + noteFold} ${data.y} L${data.x + noteWidth - noteRadius} ${
@@ -168,6 +249,7 @@ export default function Note({ data, onPointerDown }) {
                     backgroundColor: "#2F68ADB3",
                   }}
                   onClick={lockUnlockNote}
+                  disabled={layout.readOnly}
                 />
                 <Popover
                   visible={
@@ -199,6 +281,7 @@ export default function Note({ data, onPointerDown }) {
                           value={data.title}
                           placeholder={t("title")}
                           className="me-2"
+                          readonly={layout.readOnly}
                           onChange={(value) =>
                             updateNote(data.id, { title: value })
                           }
@@ -225,38 +308,19 @@ export default function Note({ data, onPointerDown }) {
                           }}
                         />
                         <ColorPicker
-                          onChange={({ hex: color }) => {
-                            setUndoStack((prev) => [
-                              ...prev,
-                              {
-                                action: Action.EDIT,
-                                element: ObjectType.NOTE,
-                                nid: data.id,
-                                undo: { color: data.color },
-                                redo: { color },
-                                message: t("edit_note", {
-                                  noteTitle: data.title,
-                                  extra: "[color]",
-                                }),
-                              },
-                            ]);
-                            setRedoStack([]);
-                            updateNote(data.id, { color });
-                          }}
                           usePopover={true}
-                          value={ColorPicker.colorStringToValue(data.color)}
-                        >
-                          <div
-                            className="h-[32px] w-[32px] rounded-sm"
-                            style={{ backgroundColor: data.color }}
-                          />
-                        </ColorPicker>
+                          readOnly={layout.readOnly}
+                          value={data.color}
+                          onChange={(color) => updateNote(data.id, { color })}
+                          onColorPick={(color) => handleColorPick(color)}
+                        />
                       </div>
                       <div className="flex">
                         <Button
-                          icon={<IconDeleteStroked />}
-                          type="danger"
                           block
+                          type="danger"
+                          disabled={layout.readOnly}
+                          icon={<IconDeleteStroked />}
                           onClick={() => deleteNote(data.id, true)}
                         >
                           {t("delete")}
@@ -283,6 +347,7 @@ export default function Note({ data, onPointerDown }) {
           </div>
           <textarea
             id={`note_${data.id}`}
+            readOnly={layout.readOnly}
             value={data.content}
             onChange={handleChange}
             onFocus={(e) =>

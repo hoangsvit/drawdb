@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 const parser = new Parser();
 
 export function fromDBML(src) {
-  const ast = parser.parse(src, "dbml");
+  const ast = parser.parse(src, "dbmlv2");
 
   const tables = [];
   const enums = [];
@@ -18,7 +18,7 @@ export function fromDBML(src) {
       parsedTable.id = nanoid();
       parsedTable.name = table.name;
       parsedTable.comment = table.note ?? "";
-      parsedTable.color = "#175e7a";
+      parsedTable.color = table.headerColor ?? "#175e7a";
       parsedTable.fields = [];
       parsedTable.indices = [];
 
@@ -28,7 +28,7 @@ export function fromDBML(src) {
         field.id = nanoid();
         field.name = column.name;
         field.type = column.type.type_name.toUpperCase();
-        field.default = column.dbdefault ?? "";
+        field.default = column.dbdefault?.value ?? "";
         field.check = "";
         field.primary = !!column.pk;
         field.unique = !!column.pk;

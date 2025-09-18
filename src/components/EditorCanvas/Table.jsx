@@ -24,22 +24,25 @@ import { isRtl } from "../../i18n/utils/rtl";
 import i18n from "../../i18n/i18n";
 import { getTableHeight } from "../../utils/utils";
 
-export default function Table(props) {
+export default function Table({
+  tableData,
+  onPointerDown,
+  setHoveredTable,
+  handleGripField,
+  setLinkingLine,
+}) {
   const [hoveredField, setHoveredField] = useState(null);
   const { database } = useDiagram();
-  const {
-    tableData,
-    onPointerDown,
-    setHoveredTable,
-    handleGripField,
-    setLinkingLine,
-  } = props;
   const { layout } = useLayout();
   const { deleteTable, deleteField, updateTable } = useDiagram();
   const { settings } = useSettings();
   const { t } = useTranslation();
-  const { selectedElement, setSelectedElement, bulkSelectedElements } =
-    useSelect();
+  const {
+    selectedElement,
+    setSelectedElement,
+    bulkSelectedElements,
+    setBulkSelectedElements,
+  } = useSelect();
 
   const borderColor = useMemo(
     () => (settings.mode === "light" ? "border-zinc-300" : "border-zinc-600"),
@@ -58,8 +61,50 @@ export default function Table(props) {
     );
   }, [selectedElement, tableData, bulkSelectedElements]);
 
-  const lockUnlockTable = () =>
-    updateTable(tableData.id, { locked: !tableData.locked });
+  const lockUnlockTable = (e) => {
+    const locking = !tableData.locked;
+    updateTable(tableData.id, { locked: locking });
+
+    const lockTable = () => {
+      setSelectedElement({
+        ...selectedElement,
+        element: ObjectType.NONE,
+        id: -1,
+        open: false,
+      });
+      setBulkSelectedElements((prev) =>
+        prev.filter(
+          (el) => el.id !== tableData.id || el.type !== ObjectType.TABLE,
+        ),
+      );
+    };
+
+    const unlockTable = () => {
+      const elementInBulk = {
+        id: tableData.id,
+        type: ObjectType.TABLE,
+        initialCoords: { x: tableData.x, y: tableData.y },
+        currentCoords: { x: tableData.x, y: tableData.y },
+      };
+      if (e.ctrlKey || e.metaKey) {
+        setBulkSelectedElements((prev) => [...prev, elementInBulk]);
+      } else {
+        setBulkSelectedElements([elementInBulk]);
+      }
+      setSelectedElement((prev) => ({
+        ...prev,
+        element: ObjectType.TABLE,
+        id: tableData.id,
+        open: false,
+      }));
+    };
+
+    if (locking) {
+      lockTable();
+    } else {
+      unlockTable();
+    }
+  };
 
   const openEditor = () => {
     if (!layout.sidebar) {
@@ -126,6 +171,7 @@ export default function Table(props) {
                   style={{
                     backgroundColor: "#2f68adb3",
                   }}
+                  disabled={layout.readOnly}
                   onClick={lockUnlockTable}
                 />
                 <Button
@@ -189,6 +235,7 @@ export default function Table(props) {
                         block
                         style={{ marginTop: "8px" }}
                         onClick={() => deleteTable(tableData.id)}
+                        disabled={layout.readOnly}
                       >
                         {t("delete")}
                       </Button>

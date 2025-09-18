@@ -1,13 +1,39 @@
 import { Cardinality } from "../../data/constants";
+import { dbToTypes } from "../../data/datatypes";
 import i18n from "../../i18n/i18n";
-import { escapeQuotes, parseDefault } from "../exportSQL/shared";
+import { escapeQuotes } from "../exportSQL/shared";
+import { isFunction, isKeyword } from "../utils";
+
+const IDENT_SAFE_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function escapeIdentifier(s) {
+  return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function quoteIdentifier(name) {
+  if (name == null) return name;
+  const s = String(name);
+  return IDENT_SAFE_RE.test(s) ? s : `"${escapeIdentifier(s)}"`;
+}
+
+function parseDefaultDbml(field, database) {
+  if (isFunction(field.default)) {
+    return `\`${field.default}\``;
+  }
+
+  if (isKeyword(field.default) || !dbToTypes[database][field.type]?.hasQuotes) {
+    return field.default;
+  }
+
+  return `'${escapeQuotes(field.default)}'`;
+}
 
 function columnDefault(field, database) {
   if (!field.default || field.default.trim() === "") {
     return "";
   }
 
-  return `default: ${parseDefault(field, database)}`;
+  return `default: ${parseDefaultDbml(field, database)}`;
 }
 
 function columnComment(field) {
@@ -26,7 +52,7 @@ function columnSettings(field, database) {
   field.notNull && constraints.push("not null");
   field.unique && constraints.push("unique");
   constraints.push(columnDefault(field, database));
-  constraints.push(columnComment(field, database));
+  constraints.push(columnComment(field));
 
   constraints = constraints.filter((x) => Boolean(x));
 
@@ -51,6 +77,23 @@ function cardinality(rel) {
   }
 }
 
+function fieldSize(field, database) {
+  const typeMetadata = dbToTypes[database][field.type];
+
+  if ((typeMetadata?.isSized || typeMetadata?.hasPrecision) && field.size)
+    return `(${field.size})`;
+
+  return "";
+}
+
+function processComment(comment) {
+  if (comment.includes("\n")) {
+    return `'''${comment}'''`;
+  }
+
+  return `'${escapeQuotes(comment)}'`;
+}
+
 export function toDBML(diagram) {
   const generateRelString = (rel) => {
     const { fields: startTableFields, name: startTableName } =
@@ -65,24 +108,41 @@ export function toDBML(diagram) {
       (f) => f.id === rel.endFieldId,
     );
 
-    return `Ref ${rel.name} {\n\t${startTableName}.${startFieldName} ${cardinality(rel)} ${endTableName}.${endFieldName} [ delete: ${rel.deleteConstraint.toLowerCase()}, update: ${rel.updateConstraint.toLowerCase()} ]\n}`;
+    return `Ref ${rel.name} {\n\t${quoteIdentifier(startTableName)}.${quoteIdentifier(startFieldName)} ${cardinality(rel)} ${quoteIdentifier(endTableName)}.${quoteIdentifier(endFieldName)} [ delete: ${rel.deleteConstraint.toLowerCase()}, update: ${rel.updateConstraint.toLowerCase()} ]\n}`;
   };
+
+  let enumDefinitions = "";
+
+  for (const table of diagram.tables) {
+    for (const field of table.fields) {
+      if (
+        (field.type === "ENUM" || field.type === "SET") &&
+        Array.isArray(field.values)
+      ) {
+        enumDefinitions += `enum ${quoteIdentifier(`${field.name}_${field.values.join("_")}_t`)} {\n\t${field.values.map((v) => quoteIdentifier(v)).join("\n\t")}\n}\n\n`;
+      }
+    }
+  }
 
   return `${diagram.enums
     .map(
       (en) =>
-        `enum ${en.name} {\n${en.values.map((v) => `\t${v}`).join("\n")}\n}\n\n`,
+        `enum ${quoteIdentifier(en.name)} {\n${en.values.map((v) => `\t${quoteIdentifier(v)}`).join("\n")}\n}\n\n`,
     )
-    .join("\n\n")}${diagram.tables
+    .join("\n\n")}${enumDefinitions}${diagram.tables
     .map(
       (table) =>
-        `Table ${table.name} {\n${table.fields
+        `Table ${quoteIdentifier(table.name)} [headercolor: ${table.color}] {\n${table.fields
           .map(
             (field) =>
-              `\t${field.name} ${field.type.toLowerCase()}${columnSettings(
+              `\t${quoteIdentifier(field.name)} ${
+                field.type === "ENUM" || field.type === "SET"
+                  ? quoteIdentifier(`${field.name}_${field.values.join("_")}_t`)
+                  : field.type.toLowerCase()
+              }${fieldSize(
                 field,
                 diagram.database,
-              )}`,
+              )}${columnSettings(field, diagram.database)}`,
           )
           .join("\n")}${
           table.indices.length > 0
@@ -90,16 +150,18 @@ export function toDBML(diagram) {
               table.indices
                 .map(
                   (index) =>
-                    `\t\t(${index.fields.join(", ")}) [ name: '${
+                    `\t\t(${index.fields
+                      .map((f) => quoteIdentifier(f))
+                      .join(", ")}) [ name: '${
                       index.name
-                    }'${index.unique ? " unique" : ""} ]`,
+                    }'${index.unique ? ", unique" : ""} ]`,
                 )
                 .join("\n") +
               "\n\t}"
             : ""
         }${
           table.comment && table.comment.trim() !== ""
-            ? `\n\n\tNote: '${escapeQuotes(table.comment)}'`
+            ? `\n\n\tNote: ${processComment(table.comment)}`
             : ""
         }\n}`,
     )

@@ -1,21 +1,53 @@
-import { useState } from "react";
-import {
-  Button,
-  Collapse,
-  TextArea,
-  Input,
-  ColorPicker,
-} from "@douyinfe/semi-ui";
+import { useState, useRef } from "react";
+import { Button, Collapse, TextArea, Input } from "@douyinfe/semi-ui";
+import ColorPicker from "../ColorPicker";
 import { IconDeleteStroked } from "@douyinfe/semi-icons";
 import { Action, ObjectType } from "../../../data/constants";
-import { useNotes, useUndoRedo } from "../../../hooks";
+import { useLayout, useNotes, useUndoRedo } from "../../../hooks";
 import { useTranslation } from "react-i18next";
 
 export default function NoteInfo({ data, nid }) {
+  const { layout } = useLayout();
   const { updateNote, deleteNote } = useNotes();
   const { setUndoStack, setRedoStack } = useUndoRedo();
   const [editField, setEditField] = useState({});
   const { t } = useTranslation();
+  const initialColorRef = useRef(data.color);
+
+  const handleColorPick = (color) => {
+    setUndoStack((prev) => {
+      let undoColor = initialColorRef.current;
+      const lastColorChange = prev.findLast(
+        (e) =>
+          e.element === ObjectType.NOTE &&
+          e.nid === data.id &&
+          e.action === Action.EDIT &&
+          e.redo?.color,
+      );
+      if (lastColorChange) {
+        undoColor = lastColorChange.redo.color;
+      }
+
+      if (color === undoColor) return prev;
+
+      const newStack = [
+        ...prev,
+        {
+          action: Action.EDIT,
+          element: ObjectType.NOTE,
+          nid: data.id,
+          undo: { color: undoColor },
+          redo: { color: color },
+          message: t("edit_note", {
+            noteTitle: data.title,
+            extra: "[color]",
+          }),
+        },
+      ];
+      return newStack;
+    });
+    setRedoStack([]);
+  };
 
   return (
     <Collapse.Panel
@@ -31,6 +63,7 @@ export default function NoteInfo({ data, nid }) {
         <div className="font-semibold me-2 break-keep">{t("title")}:</div>
         <Input
           value={data.title}
+          readonly={layout.readOnly}
           placeholder={t("title")}
           onChange={(value) => updateNote(data.id, { title: value })}
           onFocus={(e) => setEditField({ title: e.target.value })}
@@ -59,6 +92,7 @@ export default function NoteInfo({ data, nid }) {
           placeholder={t("content")}
           value={data.content}
           autosize
+          readonly={layout.readOnly}
           onChange={(value) => {
             const textarea = document.getElementById(`note_${data.id}`);
             textarea.style.height = "0";
@@ -93,37 +127,18 @@ export default function NoteInfo({ data, nid }) {
           }}
           rows={3}
         />
-        <div className="ms-2">
+        <div className="ms-2 flex flex-col gap-2">
           <ColorPicker
-            onChange={({ hex: color }) => {
-              setUndoStack((prev) => [
-                ...prev,
-                {
-                  action: Action.EDIT,
-                  element: ObjectType.NOTE,
-                  nid: nid,
-                  undo: { color: data.color },
-                  redo: { color },
-                  message: t("edit_note", {
-                    noteTitle: data.title,
-                    extra: "[color]",
-                  }),
-                },
-              ]);
-              setRedoStack([]);
-              updateNote(nid, { color });
-            }}
             usePopover={true}
-            value={ColorPicker.colorStringToValue(data.color)}
-          >
-            <div
-              className="h-[32px] w-[32px] rounded-sm shrink-0 mb-2"
-              style={{ backgroundColor: data.color }}
-            />
-          </ColorPicker>
+            readOnly={layout.readOnly}
+            value={data.color}
+            onChange={(color) => updateNote(data.id, { color })}
+            onColorPick={(color) => handleColorPick(color)}
+          />
           <Button
-            icon={<IconDeleteStroked />}
             type="danger"
+            disabled={layout.readOnly}
+            icon={<IconDeleteStroked />}
             onClick={() => deleteNote(nid, true)}
           />
         </div>

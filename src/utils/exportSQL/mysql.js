@@ -10,7 +10,10 @@ function parseType(field) {
     res += `${field.values ? "(" + field.values.map((value) => "'" + value + "'").join(", ") + ")" : ""}`;
   }
 
-  if (dbToTypes[DB.MYSQL][field.type].isSized) {
+  if (
+    dbToTypes[DB.MYSQL][field.type].isSized ||
+    dbToTypes[DB.MYSQL][field.type].hasPrecision
+  ) {
     res += `${field.size && field.size !== "" ? "(" + field.size + ")" : ""}`;
   }
 
@@ -24,9 +27,11 @@ export function toMySQL(diagram) {
         `CREATE TABLE \`${table.name}\` (\n${table.fields
           .map(
             (field) =>
-              `\t\`${field.name}\` ${parseType(field)}${field.unsigned ? " UNSIGNED" : ""}${
-                field.notNull ? " NOT NULL" : ""
-              }${
+              `\t\`${field.name}\` ${parseType(field)}${
+                dbToTypes[DB.MYSQL][field.type]?.signed && field.unsigned
+                  ? " UNSIGNED"
+                  : ""
+              }${field.notNull ? " NOT NULL" : ""}${
                 field.increment ? " AUTO_INCREMENT" : ""
               }${field.unique ? " UNIQUE" : ""}${
                 field.default !== ""

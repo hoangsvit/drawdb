@@ -43,6 +43,7 @@ import {
   DB,
   IMPORT_FROM,
   noteWidth,
+  pngExportPixelRatio,
 } from "../../data/constants";
 import jsPDF from "jspdf";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -81,6 +82,7 @@ import { toDBML } from "../../utils/exportAs/dbml";
 import { exportSavedData } from "../../utils/exportSavedData";
 import { nanoid } from "nanoid";
 import { getTableHeight } from "../../utils/utils";
+import { deleteFromCache, STORAGE_KEY } from "../../utils/cache";
 
 export default function ControlPanel({
   diagramId,
@@ -125,7 +127,7 @@ export default function ControlPanel({
   const { selectedElement, setSelectedElement } = useSelect();
   const { transform, setTransform } = useTransform();
   const { t, i18n } = useTranslation();
-  const { setGistId } = useContext(IdContext);
+  const { version, gistId, setGistId } = useContext(IdContext);
   const navigate = useNavigate();
 
   const invertLayout = (component) =>
@@ -477,6 +479,8 @@ export default function ControlPanel({
   const fileImport = () => setModal(MODAL.IMPORT);
   const viewGrid = () =>
     setSettings((prev) => ({ ...prev, showGrid: !prev.showGrid }));
+  const snapToGrid = () =>
+    setSettings((prev) => ({ ...prev, snapToGrid: !prev.snapToGrid }));
   const zoomIn = () =>
     setTransform((prev) => ({ ...prev, zoom: prev.zoom * 1.2 }));
   const zoomOut = () =>
@@ -491,7 +495,9 @@ export default function ControlPanel({
     }));
   };
   const copyAsImage = () => {
-    toPng(document.getElementById("canvas")).then(function (dataUrl) {
+    toPng(document.getElementById("canvas"), {
+      pixelRatio: pngExportPixelRatio,
+    }).then(function (dataUrl) {
       const blob = dataURItoBlob(dataUrl);
       navigator.clipboard
         .write([new ClipboardItem({ "image/png": blob })])
@@ -610,6 +616,9 @@ export default function ControlPanel({
     }
   };
   const del = () => {
+    if (layout.readonly) {
+      return;
+    }
     switch (selectedElement.element) {
       case ObjectType.TABLE:
         deleteTable(selectedElement.id);
@@ -625,6 +634,9 @@ export default function ControlPanel({
     }
   };
   const duplicate = () => {
+    if (layout.readonly) {
+      return;
+    }
     switch (selectedElement.element) {
       case ObjectType.TABLE: {
         const copiedTable = tables.find((t) => t.id === selectedElement.id);
@@ -680,6 +692,9 @@ export default function ControlPanel({
     }
   };
   const paste = () => {
+    if (layout.readonly) {
+      return;
+    }
     navigator.clipboard.readText().then((text) => {
       let obj = null;
       try {
@@ -713,6 +728,9 @@ export default function ControlPanel({
     });
   };
   const cut = () => {
+    if (layout.readonly) {
+      return;
+    }
     copy();
     del();
   };
@@ -742,10 +760,12 @@ export default function ControlPanel({
       save: {
         function: save,
         shortcut: "Ctrl+S",
+        disabled: layout.readOnly,
       },
       save_as: {
         function: saveDiagramAs,
         shortcut: "Ctrl+Shift+S",
+        disabled: layout.readOnly,
       },
       save_as_template: {
         function: () => {
@@ -770,6 +790,7 @@ export default function ControlPanel({
         function: () => {
           setModal(MODAL.RENAME);
         },
+        disabled: layout.readOnly,
       },
       delete_diagram: {
         warning: {
@@ -800,6 +821,7 @@ export default function ControlPanel({
           {
             function: fileImport,
             name: "JSON",
+            disabled: layout.readOnly,
           },
           {
             function: () => {
@@ -807,6 +829,7 @@ export default function ControlPanel({
               setImportFrom(IMPORT_FROM.DBML);
             },
             name: "DBML",
+            disabled: layout.readOnly,
           },
         ],
       },
@@ -819,6 +842,7 @@ export default function ControlPanel({
                 setImportDb(DB.MYSQL);
               },
               name: "MySQL",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -826,6 +850,7 @@ export default function ControlPanel({
                 setImportDb(DB.POSTGRES);
               },
               name: "PostgreSQL",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -833,6 +858,7 @@ export default function ControlPanel({
                 setImportDb(DB.SQLITE);
               },
               name: "SQLite",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -840,6 +866,7 @@ export default function ControlPanel({
                 setImportDb(DB.MARIADB);
               },
               name: "MariaDB",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -847,6 +874,7 @@ export default function ControlPanel({
                 setImportDb(DB.MSSQL);
               },
               name: "MSSQL",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -855,6 +883,7 @@ export default function ControlPanel({
               },
               name: "Oracle",
               label: "Beta",
+              disabled: layout.readOnly,
             },
           ],
         }),
@@ -863,6 +892,7 @@ export default function ControlPanel({
 
           setModal(MODAL.IMPORT_SRC);
         },
+        disabled: layout.readOnly,
       },
       export_source: {
         ...(database === DB.GENERIC && {
@@ -994,7 +1024,9 @@ export default function ControlPanel({
           {
             name: "PNG",
             function: () => {
-              toPng(document.getElementById("canvas")).then(function (dataUrl) {
+              toPng(document.getElementById("canvas"), {
+                pixelRatio: pngExportPixelRatio,
+              }).then(function (dataUrl) {
                 setExportData((prev) => ({
                   ...prev,
                   data: dataUrl,
@@ -1068,6 +1100,7 @@ export default function ControlPanel({
                 tables,
                 relationships,
                 enums,
+                database,
               });
               setExportData((prev) => ({
                 ...prev,
@@ -1151,10 +1184,12 @@ export default function ControlPanel({
       undo: {
         function: undo,
         shortcut: "Ctrl+Z",
+        disabled: layout.readOnly || undoStack.length === 0,
       },
       redo: {
         function: redo,
         shortcut: "Ctrl+Y",
+        disabled: layout.readOnly || redoStack.length === 0,
       },
       clear: {
         warning: {
@@ -1186,14 +1221,17 @@ export default function ControlPanel({
               );
             });
         },
+        disabled: layout.readOnly,
       },
       edit: {
         function: edit,
         shortcut: "Ctrl+E",
+        disabled: layout.readOnly,
       },
       cut: {
         function: cut,
         shortcut: "Ctrl+X",
+        disabled: layout.readOnly,
       },
       copy: {
         function: copy,
@@ -1202,14 +1240,17 @@ export default function ControlPanel({
       paste: {
         function: paste,
         shortcut: "Ctrl+V",
+        disabled: layout.readOnly,
       },
       duplicate: {
         function: duplicate,
         shortcut: "Ctrl+D",
+        disabled: layout.readOnly,
       },
       delete: {
         function: del,
         shortcut: "Del",
+        disabled: layout.readOnly,
       },
       copy_as_image: {
         function: copyAsImage,
@@ -1307,6 +1348,14 @@ export default function ControlPanel({
         function: viewGrid,
         shortcut: "Ctrl+Shift+G",
       },
+      snap_to_grid: {
+        state: settings.snapToGrid ? (
+          <i className="bi bi-toggle-on" />
+        ) : (
+          <i className="bi bi-toggle-off" />
+        ),
+        function: snapToGrid,
+      },
       show_cardinality: {
         state: settings.showCardinality ? (
           <i className="bi bi-toggle-on" />
@@ -1347,25 +1396,11 @@ export default function ControlPanel({
         children: [
           {
             name: t("light"),
-            function: () => {
-              const body = document.body;
-              if (body.hasAttribute("theme-mode")) {
-                body.setAttribute("theme-mode", "light");
-              }
-              localStorage.setItem("theme", "light");
-              setSettings((prev) => ({ ...prev, mode: "light" }));
-            },
+            function: () => setSettings((prev) => ({ ...prev, mode: "light" })),
           },
           {
             name: t("dark"),
-            function: () => {
-              const body = document.body;
-              if (body.hasAttribute("theme-mode")) {
-                body.setAttribute("theme-mode", "dark");
-              }
-              localStorage.setItem("theme", "dark");
-              setSettings((prev) => ({ ...prev, mode: "dark" }));
-            },
+            function: () => setSettings((prev) => ({ ...prev, mode: "dark" })),
           },
         ],
         function: () => {},
@@ -1400,17 +1435,9 @@ export default function ControlPanel({
         function: () =>
           setSettings((prev) => ({ ...prev, autosave: !prev.autosave })),
       },
-      panning: {
-        state: settings.panning ? (
-          <i className="bi bi-toggle-on" />
-        ) : (
-          <i className="bi bi-toggle-off" />
-        ),
-        function: () =>
-          setSettings((prev) => ({ ...prev, panning: !prev.panning })),
-      },
       table_width: {
         function: () => setModal(MODAL.TABLE_WIDTH),
+        disabled: layout.readOnly,
       },
       language: {
         function: () => setModal(MODAL.LANGUAGE),
@@ -1418,12 +1445,19 @@ export default function ControlPanel({
       export_saved_data: {
         function: exportSavedData,
       },
+      clear_cache: {
+        function: () => {
+          deleteFromCache(gistId);
+          Toast.success(t("cache_cleared"));
+        },
+      },
       flush_storage: {
         warning: {
           title: t("flush_storage"),
           message: t("are_you_sure_flush_storage"),
         },
         function: async () => {
+          localStorage.removeItem(STORAGE_KEY);
           db.delete()
             .then(() => {
               Toast.success(t("storage_flushed"));
@@ -1520,6 +1554,8 @@ export default function ControlPanel({
       />
       <Sidesheet
         type={sidesheet}
+        title={title}
+        setTitle={setTitle}
         onClose={() => setSidesheet(SIDESHEET.NONE)}
       />
     </>
@@ -1607,67 +1643,49 @@ export default function ControlPanel({
               <i className="fa-solid fa-magnifying-glass-minus" />
             </button>
           </Tooltip>
-          <Tooltip
-            content={settings.panning ? t("multiselect") : t("panning")}
-            position="bottom"
-          >
-            <button
-              className="py-1 px-2 hover-2 rounded-sm text-lg w-10"
-              onClick={() =>
-                setSettings((prev) => ({ ...prev, panning: !prev.panning }))
-              }
-            >
-              {settings.panning ? (
-                <i className="fa-solid fa-expand" />
-              ) : (
-                <i className="fa-regular fa-hand"></i>
-              )}
-            </button>
-          </Tooltip>
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("undo")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
+              disabled={undoStack.length === 0 || layout.readOnly}
               onClick={undo}
             >
-              <IconUndo
-                size="large"
-                style={{ color: undoStack.length === 0 ? "#9598a6" : "" }}
-              />
+              <IconUndo size="large" />
             </button>
           </Tooltip>
           <Tooltip content={t("redo")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
+              disabled={redoStack.length === 0 || layout.readOnly}
               onClick={redo}
             >
-              <IconRedo
-                size="large"
-                style={{ color: redoStack.length === 0 ? "#9598a6" : "" }}
-              />
+              <IconRedo size="large" />
             </button>
           </Tooltip>
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("add_table")} position="bottom">
             <button
-              className="flex items-center py-1 px-2 hover-2 rounded-sm"
+              className="flex items-center py-1 px-2 hover-2 rounded-sm disabled:opacity-50"
               onClick={() => addTable()}
+              disabled={layout.readOnly}
             >
               <IconAddTable />
             </button>
           </Tooltip>
           <Tooltip content={t("add_area")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
               onClick={() => addArea()}
+              disabled={layout.readOnly}
             >
               <IconAddArea />
             </button>
           </Tooltip>
           <Tooltip content={t("add_note")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
               onClick={() => addNote()}
+              disabled={layout.readOnly}
             >
               <IconAddNote />
             </button>
@@ -1675,10 +1693,19 @@ export default function ControlPanel({
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("save")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
               onClick={save}
+              disabled={layout.readOnly}
             >
               <IconSaveStroked size="extra-large" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("versions")} position="bottom">
+            <button
+              className="py-1 px-2 hover-2 rounded-sm text-xl -mt-0.5"
+              onClick={() => setSidesheet(SIDESHEET.VERSIONS)}
+            >
+              <i className="fa-solid fa-code-branch" />{" "}
             </button>
           </Tooltip>
           <Tooltip content={t("to_do")} position="bottom">
@@ -1767,7 +1794,7 @@ export default function ControlPanel({
                 />
               )}
               <div
-                className="text-xl  me-1"
+                className="text-xl flex items-center gap-1 me-1"
                 onPointerEnter={(e) => e.isPrimary && setShowEditName(true)}
                 onPointerLeave={(e) => e.isPrimary && setShowEditName(false)}
                 onPointerDown={(e) => {
@@ -1775,14 +1802,24 @@ export default function ControlPanel({
                   // https://stackoverflow.com/a/70976017/1137077
                   e.target.releasePointerCapture(e.pointerId);
                 }}
-                onClick={() => setModal(MODAL.RENAME)}
+                onClick={!layout.readOnly && (() => setModal(MODAL.RENAME))}
               >
-                {window.name.split(" ")[0] === "t" ? "Templates/" : "Diagrams/"}
-                {title}
+                <span>
+                  {(window.name.split(" ")[0] === "t"
+                    ? "Templates/"
+                    : "Diagrams/") + title}
+                </span>
+                {version && (
+                  <Tag className="mt-1" color="blue" size="small">
+                    {version.substring(0, 7)}
+                  </Tag>
+                )}
               </div>
-              {(showEditName || modal === MODAL.RENAME) && <IconEdit />}
+              {(showEditName || modal === MODAL.RENAME) && !layout.readOnly && (
+                <IconEdit />
+              )}
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex items-center">
               <div className="flex justify-start text-md select-none me-2">
                 {Object.keys(menu).map((category) => (
                   <Dropdown
@@ -1809,6 +1846,7 @@ export default function ControlPanel({
                                           key={i}
                                           onClick={e.function}
                                           className="flex justify-between"
+                                          disabled={e.disabled}
                                         >
                                           <span>{e.name}</span>
                                           {e.label && (
@@ -1862,6 +1900,7 @@ export default function ControlPanel({
                           return (
                             <Dropdown.Item
                               key={index}
+                              disabled={menu[category][item].disabled}
                               onClick={menu[category][item].function}
                               style={
                                 menu[category][item].shortcut && {
@@ -1895,17 +1934,21 @@ export default function ControlPanel({
                   </Dropdown>
                 ))}
               </div>
-              <Button
-                size="small"
-                type="tertiary"
-                icon={
-                  saveState === State.LOADING || saveState === State.SAVING ? (
-                    <Spin size="small" />
-                  ) : null
-                }
-              >
-                {getState()}
-              </Button>
+              {layout.readOnly && <Tag size="small">{t("read_only")}</Tag>}
+              {!layout.readOnly && (
+                <Tag
+                  size="small"
+                  type="light"
+                  prefixIcon={
+                    saveState === State.LOADING ||
+                    saveState === State.SAVING ? (
+                      <Spin size="small" />
+                    ) : null
+                  }
+                >
+                  {getState()}
+                </Tag>
+              )}
             </div>
           </div>
         </div>
