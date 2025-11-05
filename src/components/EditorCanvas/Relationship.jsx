@@ -19,7 +19,8 @@ export default function Relationship({ data }) {
     const startTable = tables.find((t) => t.id === data.startTableId);
     const endTable = tables.find((t) => t.id === data.endTableId);
 
-    if (!startTable || !endTable) return null;
+    if (!startTable || !endTable || startTable.hidden || endTable.hidden)
+      return null;
 
     return {
       startFieldIndex: startTable.fields.findIndex(
@@ -110,16 +111,24 @@ export default function Relationship({ data }) {
     }
   };
 
+  if (!pathValues) return null;
+
   return (
     <>
       <g className="select-none group" onDoubleClick={edit}>
+        {/* invisible wider path for better hover ux */}
+        <path
+          d={calcPath(pathValues, settings.tableWidth)}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={12}
+          cursor="pointer"
+        />
         <path
           ref={pathRef}
           d={calcPath(pathValues, settings.tableWidth)}
-          stroke="gray"
-          className="group-hover:stroke-sky-700"
+          className="relationship-path"
           fill="none"
-          strokeWidth={2}
           cursor="pointer"
         />
         {settings.showRelationshipLabels && (
@@ -130,7 +139,7 @@ export default function Relationship({ data }) {
             fontSize={labelFontSize}
             fontWeight={500}
             ref={labelRef}
-            className="group-hover:fill-sky-700"
+            className="group-hover:fill-sky-600"
           >
             {data.name}
           </text>
@@ -196,7 +205,7 @@ function CardinalityLabel({ x, y, text, r = 12, padding = 14 }) {
         width={textWidth + padding}
         height={r * 2}
         fill="grey"
-        className="group-hover:fill-sky-700"
+        className="group-hover:fill-sky-600"
       />
       <text
         ref={textRef}

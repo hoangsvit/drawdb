@@ -29,7 +29,11 @@ function parseDefaultDbml(field, database) {
 }
 
 function columnDefault(field, database) {
-  if (!field.default || field.default.trim() === "") {
+  if (!field.default) {
+    return "";
+  }
+
+  if (typeof field.default === "string" && !field.default.trim()) {
     return "";
   }
 
@@ -108,7 +112,7 @@ export function toDBML(diagram) {
       (f) => f.id === rel.endFieldId,
     );
 
-    return `Ref ${rel.name} {\n\t${quoteIdentifier(startTableName)}.${quoteIdentifier(startFieldName)} ${cardinality(rel)} ${quoteIdentifier(endTableName)}.${quoteIdentifier(endFieldName)} [ delete: ${rel.deleteConstraint.toLowerCase()}, update: ${rel.updateConstraint.toLowerCase()} ]\n}`;
+    return `Ref ${quoteIdentifier(rel.name)} {\n\t${quoteIdentifier(startTableName)}.${quoteIdentifier(startFieldName)} ${cardinality(rel)} ${quoteIdentifier(endTableName)}.${quoteIdentifier(endFieldName)} [ delete: ${rel.deleteConstraint.toLowerCase()}, update: ${rel.updateConstraint.toLowerCase()} ]\n}`;
   };
 
   let enumDefinitions = "";
